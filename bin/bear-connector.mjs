@@ -15,8 +15,8 @@ Bear connector for local macOS drafting workflows.
 Usage:
   bear-connector search --query "Coffee" [--tag "Drafts"] [--limit 10]
   bear-connector recent [--limit 10]
-  bear-connector read --id NOTE_ID [--text-only]
-  bear-connector read --title "Note title" [--text-only]
+  bear-connector read --id NOTE_ID [--text-only] [--include-attachments]
+  bear-connector read --title "Note title" [--text-only] [--attachments metadata|base64]
   bear-connector add --title "Title" --text-file draft.md [--tags "Coffee & Covid,drafts"]
   bear-connector edit --id NOTE_ID --text-file draft.md [--mode replace|replace_all]
   bear-connector append --id NOTE_ID --text "More text"
@@ -25,7 +25,10 @@ Usage:
 
 Options:
   --database PATH       Override Bear database path.
+  --container PATH      Override Bear group container path.
   --include-trashed     Include trashed notes in read/search/recent.
+  --include-attachments Include attachment file paths and metadata on read.
+  --attachments MODE    Attachment mode for read: metadata or base64.
   --json                Force JSON output for read.
   --dry-run             Print the Bear URL without opening Bear or changing clipboard.
 `
@@ -104,6 +107,8 @@ async function handleUpdate(args, mode) {
 function toReadOptions(args) {
   return {
     database: args.database,
+    container: args.container,
+    attachments: resolveAttachmentMode(args),
     includeTrashed: Boolean(args['include-trashed']),
     id: args.id,
     limit: args.limit,
@@ -111,6 +116,22 @@ function toReadOptions(args) {
     tag: args.tag,
     title: args.title,
   }
+}
+
+function resolveAttachmentMode(args) {
+  if (args.attachments) {
+    if (!['metadata', 'base64'].includes(args.attachments)) {
+      throw new Error('--attachments must be metadata or base64')
+    }
+
+    return args.attachments
+  }
+
+  if (args['include-attachments']) {
+    return 'metadata'
+  }
+
+  return undefined
 }
 
 function toWriteOptions(args) {

@@ -36,6 +36,8 @@ npm link
 bear-connector recent --limit 5
 bear-connector search --query "Coffee" --limit 10
 bear-connector read --id NOTE_ID --text-only
+bear-connector read --id NOTE_ID --include-attachments
+bear-connector read --id NOTE_ID --attachments base64
 bear-connector read --title "Exact Note Title"
 bear-connector add --title "Draft Title" --text-file draft.md --tags "drafts"
 bear-connector edit --id NOTE_ID --text-file draft.md
@@ -49,6 +51,18 @@ Use `--dry-run` on write commands to print the Bear action without changing the 
 ```bash
 bear-connector edit --id NOTE_ID --text-file draft.md --dry-run
 ```
+
+## Attachments
+
+Reads return text only by default. To include images and other Bear note files, request them explicitly:
+
+```bash
+bear-connector read --id NOTE_ID --include-attachments
+bear-connector read --id NOTE_ID --attachments metadata
+bear-connector read --id NOTE_ID --attachments base64
+```
+
+`metadata` returns local paths, dimensions, file sizes, MIME types, and Bear attachment IDs. `base64` also includes `base64` and `dataUrl` fields. Base64 can make responses very large, so it is intentionally opt-in.
 
 ## MCP
 
@@ -93,11 +107,15 @@ BEAR_DATABASE=/path/to/database.sqlite bear-connector recent
 bear-connector recent --database /path/to/database.sqlite
 ```
 
+If Bear's group container is in a nonstandard location, pass `--container /path/to/9K33E3U3T4.net.shinyfrog.bear` or set `BEAR_CONTAINER`.
+
 ## Privacy
 
 Reads are local. The connector shells out to `sqlite3 -readonly` against your local Bear database. Writes are performed by Bear itself through Bear's x-callback-url API.
 
 Write commands put the note body on your macOS clipboard. This is intentional, because it avoids URL length limits for long drafts.
+
+Attachment reads return local filesystem paths unless `--attachments base64` is used.
 
 ## Limitations
 

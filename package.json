@@ -1,6 +1,6 @@
 {
   "name": "bear-connector",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local Bear notes connector for reading, searching, creating, and editing notes on macOS.",
   "type": "module",
   "bin": {

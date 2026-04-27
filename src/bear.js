@@ -11,8 +11,17 @@ export const DEFAULT_BEAR_DATABASE = path.join(
   'Library/Group Containers/9K33E3U3T4.net.shinyfrog.bear/Application Data/database.sqlite',
 )
 
+export const DEFAULT_BEAR_CONTAINER = path.join(
+  os.homedir(),
+  'Library/Group Containers/9K33E3U3T4.net.shinyfrog.bear',
+)
+
 export function resolveDatabasePath(databasePath) {
   return databasePath || process.env.BEAR_DATABASE || DEFAULT_BEAR_DATABASE
+}
+
+export function resolveContainerPath(containerPath) {
+  return containerPath || process.env.BEAR_CONTAINER || DEFAULT_BEAR_CONTAINER
 }
 
 export async function searchNotes(options = {}) {
@@ -57,7 +66,7 @@ export async function recentNotes(options = {}) {
 export async function readNote(options = {}) {
   const databasePath = resolveDatabasePath(options.database)
   const rows = await runJsonQuery(databasePath, `
-    ${baseNoteSelect(true)}
+    ${baseNoteSelect(true, true)}
     WHERE ${activeWhere(Boolean(options.includeTrashed))}
       AND ${resolveNoteWhere(options)}
     GROUP BY n.Z_PK
@@ -69,7 +78,18 @@ export async function readNote(options = {}) {
     throw new Error('No matching Bear note found.')
   }
 
-  return rows[0]
+  const note = rows[0]
+  if (options.attachments) {
+    note.attachments = await readNoteAttachments({
+      database: databasePath,
+      container: options.container,
+      notePrimaryKey: note.primaryKey,
+      mode: options.attachments,
+    })
+  }
+
+  delete note.primaryKey
+  return note
 }
 
 export async function createNote(options = {}) {
@@ -218,11 +238,13 @@ async function writeClipboard(text) {
   })
 }
 
-function baseNoteSelect(includeText) {
+function baseNoteSelect(includeText, includePrimaryKey = false) {
   const textColumn = includeText ? ', n.ZTEXT AS text' : ''
+  const primaryKeyColumn = includePrimaryKey ? 'n.Z_PK AS primaryKey,' : ''
 
   return `
     SELECT
+      ${primaryKeyColumn}
       n.ZUNIQUEIDENTIFIER AS id,
       n.ZTITLE AS title,
       n.ZSUBTITLE AS subtitle,
@@ -238,6 +260,65 @@ function baseNoteSelect(includeText) {
     LEFT JOIN Z_5TAGS nt ON nt.Z_5NOTES = n.Z_PK
     LEFT JOIN ZSFNOTETAG t ON t.Z_PK = nt.Z_13TAGS
   `
+}
+
+async function readNoteAttachments(options) {
+  const rows = await runJsonQuery(options.database, `
+    SELECT
+      ZUNIQUEIDENTIFIER AS id,
+      ZFILENAME AS filename,
+      ZNORMALIZEDFILEEXTENSION AS extension,
+      ZWIDTH AS width,
+      ZHEIGHT AS height,
+      ZFILESIZE AS size,
+      ZINDEX AS position
+    FROM ZSFNOTEFILE
+    WHERE ZNOTE = ${Number(options.notePrimaryKey)}
+      AND ZPERMANENTLYDELETED = 0
+      AND ZENCRYPTED = 0
+    ORDER BY ZINDEX ASC, Z_PK ASC;
+  `)
+
+  const includeBase64 = options.mode === 'base64'
+  const imagesDirectory = path.join(
+    resolveContainerPath(options.container),
+    'Application Data/Local Files/Note Images',
+  )
+
+  return Promise.all(rows.map(async (row) => {
+    const filePath = path.join(imagesDirectory, row.id, row.filename)
+    const attachment = {
+      ...row,
+      path: filePath,
+      mimeType: mimeTypeForExtension(row.extension),
+    }
+
+    if (includeBase64) {
+      const fileBuffer = await fs.readFile(filePath)
+      attachment.base64 = fileBuffer.toString('base64')
+      attachment.dataUrl = `data:${attachment.mimeType};base64,${attachment.base64}`
+    }
+
+    return attachment
+  }))
+}
+
+function mimeTypeForExtension(extension) {
+  switch (String(extension || '').toLowerCase()) {
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg'
+    case 'gif':
+      return 'image/gif'
+    case 'webp':
+      return 'image/webp'
+    case 'tif':
+    case 'tiff':
+      return 'image/tiff'
+    case 'png':
+    default:
+      return 'image/png'
+  }
 }
 
 function activeWhere(includeTrashed) {

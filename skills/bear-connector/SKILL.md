@@ -13,6 +13,7 @@ Use the local `bear-connector` CLI or the `bear` MCP tools to work with Bear not
 - Writes use Bear's official `bear://x-callback-url` actions.
 - For long writes, text is copied to the macOS clipboard and Bear is asked to consume the clipboard.
 - Prefer `dryRun: true` or `--dry-run` before destructive replacements unless the user clearly asked to write.
+- Reads return text only unless attachments are requested. Prefer metadata paths first; use base64 only when the host needs inline assets.
 
 ## CLI Examples
 
@@ -20,6 +21,8 @@ Use the local `bear-connector` CLI or the `bear` MCP tools to work with Bear not
 bear-connector recent --limit 5
 bear-connector search --query "draft" --limit 10
 bear-connector read --id NOTE_ID --text-only
+bear-connector read --id NOTE_ID --include-attachments
+bear-connector read --id NOTE_ID --attachments base64
 bear-connector add --title "Draft" --text-file draft.md --tags "drafts"
 bear-connector edit --id NOTE_ID --text-file draft.md --dry-run
 bear-connector append --id NOTE_ID --text "Postscript" --new-line

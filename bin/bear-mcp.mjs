@@ -45,7 +45,9 @@ const tools = [
         id: { type: 'string' },
         title: { type: 'string' },
         database: { type: 'string' },
+        container: { type: 'string' },
         includeTrashed: { type: 'boolean' },
+        attachments: { enum: ['metadata', 'base64'] },
       },
     },
   },
@@ -98,7 +100,7 @@ const handlers = {
   initialize: async () => ({
     protocolVersion: '2024-11-05',
     capabilities: { tools: {} },
-    serverInfo: { name: 'bear-connector', version: '0.1.0' },
+    serverInfo: { name: 'bear-connector', version: '0.1.1' },
   }),
   'tools/list': async () => ({ tools }),
   'tools/call': async (params) => {
