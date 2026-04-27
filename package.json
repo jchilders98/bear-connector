@@ -1,0 +1,39 @@
+{
+  "name": "bear-connector",
+  "version": "0.1.0",
+  "description": "Local Bear notes connector for reading, searching, creating, and editing notes on macOS.",
+  "type": "module",
+  "bin": {
+    "bear-connector": "./bin/bear-connector.mjs",
+    "bear-mcp": "./bin/bear-mcp.mjs"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check bin/bear-connector.mjs && node --check bin/bear-mcp.mjs && node --check src/bear.js"
+  },
+  "keywords": [
+    "bear",
+    "notes",
+    "connector",
+    "mcp",
+    "codex",
+    "macos"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin",
+    "src",
+    "skills",
+    ".codex-plugin",
+    ".mcp.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jchilders98/bear-connector.git"
+  }
+}

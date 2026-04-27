@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "bear": {
+      "command": "node",
+      "args": ["./bin/bear-mcp.mjs"]
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "bear-connector",
+  "version": "0.1.0",
+  "description": "Local macOS connector for Bear notes: read, search, create, edit, append, prepend, and open notes.",
+  "author": "jchilders98",
+  "license": "MIT",
+  "homepage": "https://github.com/jchilders98/bear-connector",
+  "repository": "https://github.com/jchilders98/bear-connector",
+  "keywords": ["bear", "notes", "macos", "mcp", "connector"],
+  "interface": {
+    "displayName": "Bear Connector",
+    "description": "Work with Bear notes locally from Codex.",
+    "category": "Productivity"
+  },
+  "mcpServers": {
+    "bear": {
+      "command": "node",
+      "args": ["./bin/bear-mcp.mjs"]
+    }
+  },
+  "skills": [
+    {
+      "name": "bear-connector",
+      "path": "skills/bear-connector/SKILL.md"
+    }
+  ]
+}
