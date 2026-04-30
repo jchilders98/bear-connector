@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import fs from 'node:fs/promises'
+import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -25,6 +26,10 @@ export function resolveContainerPath(containerPath) {
 }
 
 export async function searchNotes(options = {}) {
+  if (preferCallback(options) && resolveBearToken(options.token)) {
+    return searchNotesViaCallback(options)
+  }
+
   const query = required(options.query, 'query is required')
   const databasePath = resolveDatabasePath(options.database)
   const limit = parseLimit(options.limit, 20)
@@ -64,6 +69,16 @@ export async function recentNotes(options = {}) {
 }
 
 export async function readNote(options = {}) {
+  if (preferCallback(options)) {
+    try {
+      return await readNoteViaCallback(options)
+    } catch (error) {
+      if (!options.allowSqliteFallback) {
+        throw error
+      }
+    }
+  }
+
   const databasePath = resolveDatabasePath(options.database)
   const rows = await runJsonQuery(databasePath, `
     ${baseNoteSelect(true, true)}
@@ -106,7 +121,7 @@ export async function createNote(options = {}) {
     params.tags = Array.isArray(options.tags) ? options.tags.join(',') : options.tags
   }
 
-  return writeThroughBear('create', params, text, Boolean(options.dryRun))
+  return writeThroughBear('create', params, text, options)
 }
 
 export async function updateNote(options = {}) {
@@ -140,7 +155,7 @@ export async function updateNote(options = {}) {
     params.new_line = 'yes'
   }
 
-  return writeThroughBear('add-text', params, text, Boolean(options.dryRun))
+  return writeThroughBear('add-text', params, text, options)
 }
 
 export async function openNote(options = {}) {
@@ -157,13 +172,15 @@ export async function openNote(options = {}) {
     throw new Error('id or title is required')
   }
 
-  return openBearAction('open-note', params, Boolean(options.dryRun))
+  return openBearAction('open-note', params, options)
 }
 
 async function runJsonQuery(databasePath, sql) {
   await fs.access(databasePath)
-  const { stdout } = await execFileAsync('sqlite3', ['-readonly', '-json', databasePath, sql], {
+  const timeoutMs = Number(process.env.BEAR_SQLITE_TIMEOUT_MS || 2500)
+  const { stdout } = await execFileAsync('sqlite3', ['-readonly', '-cmd', `.timeout ${timeoutMs}`, '-json', databasePath, sql], {
     maxBuffer: 1024 * 1024 * 64,
+    timeout: timeoutMs + 1000,
   })
 
   if (!stdout.trim()) {
@@ -177,10 +194,10 @@ async function runJsonQuery(databasePath, sql) {
   }))
 }
 
-async function writeThroughBear(action, params, text, dryRun) {
+async function writeThroughBear(action, params, text, options) {
   const url = buildBearUrl(action, params)
 
-  if (dryRun) {
+  if (options.dryRun) {
     return {
       dryRun: true,
       url,
@@ -189,22 +206,24 @@ async function writeThroughBear(action, params, text, dryRun) {
   }
 
   await writeClipboard(text)
-  await execFileAsync('open', [url])
+  const callback = await openBearAction(action, params, options)
   return {
     dryRun: false,
-    url,
+    ...callback,
     clipboardCharacterCount: text.length,
   }
 }
 
-async function openBearAction(action, params, dryRun) {
+async function openBearAction(action, params, options = {}) {
   const url = buildBearUrl(action, params)
 
-  if (!dryRun) {
-    await execFileAsync('open', [url])
+  if (options.dryRun) {
+    return { dryRun: true, url }
   }
 
-  return { dryRun, url }
+  return callBearAction(action, params, {
+    timeoutMs: options.callbackTimeoutMs,
+  })
 }
 
 export function buildBearUrl(action, params) {
@@ -216,6 +235,178 @@ export function buildBearUrl(action, params) {
   }
 
   return url.toString()
+}
+
+async function callBearAction(action, params, options = {}) {
+  const timeoutMs = Number(options.timeoutMs || process.env.BEAR_CALLBACK_TIMEOUT_MS || 30000)
+  const callbackId = Math.random().toString(36).slice(2)
+
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const server = http.createServer({ maxHeaderSize: 1024 * 1024 * 64 }, (request, response) => {
+      const requestUrl = new URL(request.url || '/', 'http://127.0.0.1')
+      const payload = Object.fromEntries(requestUrl.searchParams.entries())
+      response.shouldKeepAlive = false
+      response.writeHead(200, { 'content-type': 'text/plain', connection: 'close' })
+      response.end('ok', () => request.socket.destroy())
+
+      if (!requestUrl.pathname.endsWith(callbackId)) {
+        return
+      }
+
+      finish(() => {
+        if (requestUrl.pathname.startsWith('/error/')) {
+          reject(new Error(payload.errorMessage || payload.errorCode || 'Bear x-callback-url error'))
+          return
+        }
+
+        resolve({
+          dryRun: false,
+          url: actionUrl,
+          callback: payload,
+        })
+      })
+    })
+
+    const timer = setTimeout(() => {
+      finish(() => reject(new Error(`Timed out waiting ${timeoutMs}ms for Bear x-callback-url response.`)))
+    }, timeoutMs)
+
+    let actionUrl = ''
+
+    function finish(callback) {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      clearTimeout(timer)
+      server.close()
+      server.closeAllConnections?.()
+      callback()
+    }
+
+    server.listen(0, '127.0.0.1', async () => {
+      const address = server.address()
+      const port = typeof address === 'object' && address ? address.port : 0
+      const callbackBase = `http://127.0.0.1:${port}`
+      actionUrl = buildBearUrl(action, {
+        ...params,
+        'x-success': `${callbackBase}/success/${callbackId}`,
+        'x-error': `${callbackBase}/error/${callbackId}`,
+      })
+
+      try {
+        await execFileAsync('open', [actionUrl])
+      } catch (error) {
+        finish(() => reject(error))
+      }
+    })
+  })
+}
+
+async function readNoteViaCallback(options) {
+  const params = {
+    exclude_trashed: options.includeTrashed ? 'no' : 'yes',
+    open_note: options.openNote || 'no',
+    show_window: options.showWindow || 'no',
+  }
+
+  if (options.id) {
+    params.id = options.id
+  } else if (options.title) {
+    params.title = options.title
+  } else {
+    throw new Error('id or title is required')
+  }
+
+  const result = await callBearAction('open-note', params, {
+    timeoutMs: options.callbackTimeoutMs,
+  })
+  const callback = result.callback || {}
+  const note = {
+    id: callback.identifier,
+    title: callback.title,
+    text: callback.note || '',
+    tags: parseCallbackJson(callback.tags, []),
+    trashed: callback.is_trashed === 'yes' ? 1 : 0,
+    modifiedAt: callback.modificationDate,
+    createdAt: callback.creationDate,
+    source: 'x-callback-url',
+  }
+
+  note.characterCount = note.text.length
+
+  if (options.attachments) {
+    const databasePath = resolveDatabasePath(options.database)
+    const notePrimaryKey = await getNotePrimaryKey(databasePath, note.id)
+    note.attachments = await readNoteAttachments({
+      database: databasePath,
+      container: options.container,
+      notePrimaryKey,
+      mode: options.attachments,
+    })
+  }
+
+  return note
+}
+
+async function searchNotesViaCallback(options) {
+  const query = required(options.query, 'query is required')
+  const result = await callBearAction('search', {
+    term: query,
+    tag: options.tag,
+    token: resolveBearToken(options.token),
+    show_window: options.showWindow || 'no',
+  }, {
+    timeoutMs: options.callbackTimeoutMs,
+  })
+
+  const notes = parseCallbackJson(result.callback?.notes, [])
+  return notes.slice(0, parseLimit(options.limit, 20)).map((note) => ({
+    id: note.identifier,
+    title: note.title,
+    tags: note.tags || note.tag || [],
+    modifiedAt: note.modificationDate,
+    createdAt: note.creationDate,
+    pinned: note.pin ? 1 : 0,
+    source: 'x-callback-url',
+  }))
+}
+
+async function getNotePrimaryKey(databasePath, noteId) {
+  const rows = await runJsonQuery(databasePath, `
+    SELECT Z_PK AS primaryKey
+    FROM ZSFNOTE
+    WHERE ZUNIQUEIDENTIFIER = ${sqlString(noteId)}
+    LIMIT 1;
+  `)
+
+  if (!rows[0]) {
+    throw new Error(`Unable to resolve Bear note primary key for attachments: ${noteId}`)
+  }
+
+  return rows[0].primaryKey
+}
+
+function preferCallback(options) {
+  return (options.source || process.env.BEAR_READ_SOURCE || 'xcallback') !== 'sqlite'
+}
+
+function resolveBearToken(token) {
+  return token || process.env.BEAR_TOKEN || process.env.BEAR_API_TOKEN
+}
+
+function parseCallbackJson(value, fallback) {
+  if (!value) {
+    return fallback
+  }
+
+  try {
+    return JSON.parse(value)
+  } catch {
+    return fallback
+  }
 }
 
 async function writeClipboard(text) {

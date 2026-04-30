@@ -18,23 +18,23 @@ const execFileAsync = promisify(execFile)
 test('reads, searches, and lists notes from a Bear-shaped database', async () => {
   const { database } = await createFixtureDatabase()
 
-  const recent = await recentNotes({ database, limit: 2 })
+  const recent = await recentNotes({ database, limit: 2, source: 'sqlite' })
   assert.equal(recent.length, 2)
   assert.equal(recent[0].title, 'Coffee Draft')
   assert.deepEqual(recent[0].tags, ['drafts'])
 
-  const search = await searchNotes({ database, query: 'canary', limit: 5 })
+  const search = await searchNotes({ database, query: 'canary', limit: 5, source: 'sqlite' })
   assert.equal(search.length, 1)
   assert.equal(search[0].id, 'NOTE-1')
 
-  const note = await readNote({ database, id: 'NOTE-1' })
+  const note = await readNote({ database, id: 'NOTE-1', source: 'sqlite' })
   assert.equal(note.title, 'Coffee Draft')
   assert.match(note.text, /coal mine/)
 })
 
 test('excludes trashed and encrypted notes by default', async () => {
   const { database } = await createFixtureDatabase()
-  const search = await searchNotes({ database, query: 'hidden', limit: 10 })
+  const search = await searchNotes({ database, query: 'hidden', limit: 10, source: 'sqlite' })
 
   assert.equal(search.length, 0)
 })
@@ -46,6 +46,7 @@ test('optionally includes attachment metadata and base64 payloads', async () => 
     database,
     container,
     id: 'NOTE-1',
+    source: 'sqlite',
     attachments: 'metadata',
   })
 
@@ -58,6 +59,7 @@ test('optionally includes attachment metadata and base64 payloads', async () => 
     database,
     container,
     id: 'NOTE-1',
+    source: 'sqlite',
     attachments: 'base64',
   })
 

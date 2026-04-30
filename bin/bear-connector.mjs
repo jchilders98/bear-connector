@@ -26,6 +26,10 @@ Usage:
 Options:
   --database PATH       Override Bear database path.
   --container PATH      Override Bear group container path.
+  --source MODE         Read source: xcallback or sqlite.
+  --allow-sqlite-fallback
+                        Fall back to SQLite if an x-callback read fails.
+  --token TOKEN         Bear API token for x-callback search results.
   --include-trashed     Include trashed notes in read/search/recent.
   --include-attachments Include attachment file paths and metadata on read.
   --attachments MODE    Attachment mode for read: metadata or base64.
@@ -108,6 +112,9 @@ function toReadOptions(args) {
   return {
     database: args.database,
     container: args.container,
+    source: args.source,
+    allowSqliteFallback: Boolean(args['allow-sqlite-fallback']),
+    token: args.token,
     attachments: resolveAttachmentMode(args),
     includeTrashed: Boolean(args['include-trashed']),
     id: args.id,

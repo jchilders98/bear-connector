@@ -36,6 +36,7 @@ npm link
 bear-connector recent --limit 5
 bear-connector search --query "Coffee" --limit 10
 bear-connector read --id NOTE_ID --text-only
+bear-connector read --id NOTE_ID --source sqlite
 bear-connector read --id NOTE_ID --include-attachments
 bear-connector read --id NOTE_ID --attachments base64
 bear-connector read --title "Exact Note Title"
@@ -116,6 +117,30 @@ Reads are local. The connector shells out to `sqlite3 -readonly` against your lo
 Write commands put the note body on your macOS clipboard. This is intentional, because it avoids URL length limits for long drafts.
 
 Attachment reads return local filesystem paths unless `--attachments base64` is used.
+
+## Read Strategy
+
+Single-note reads prefer Bear's `open-note` x-callback-url action by default, so they do not touch Bear's SQLite database:
+
+```bash
+bear-connector read --id NOTE_ID
+```
+
+SQLite reads remain available when you need direct database behavior:
+
+```bash
+bear-connector read --id NOTE_ID --source sqlite
+```
+
+SQLite calls use `sqlite3 -readonly`, set a short busy timeout, and the process itself has a timeout so agents fail quickly instead of hanging on a locked database.
+
+Search can also use Bear's x-callback API when a Bear API token is available:
+
+```bash
+BEAR_TOKEN=... bear-connector search --query "Coffee"
+```
+
+Without a token, search falls back to SQLite.
 
 ## Limitations
 

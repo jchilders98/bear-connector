@@ -19,6 +19,9 @@ const tools = [
         tag: { type: 'string' },
         limit: { type: 'number' },
         database: { type: 'string' },
+        source: { enum: ['xcallback', 'sqlite'] },
+        allowSqliteFallback: { type: 'boolean' },
+        token: { type: 'string' },
         includeTrashed: { type: 'boolean' },
       },
       required: ['query'],
@@ -32,6 +35,7 @@ const tools = [
       properties: {
         limit: { type: 'number' },
         database: { type: 'string' },
+        source: { enum: ['sqlite'] },
         includeTrashed: { type: 'boolean' },
       },
     },
@@ -46,6 +50,8 @@ const tools = [
         title: { type: 'string' },
         database: { type: 'string' },
         container: { type: 'string' },
+        source: { enum: ['xcallback', 'sqlite'] },
+        allowSqliteFallback: { type: 'boolean' },
         includeTrashed: { type: 'boolean' },
         attachments: { enum: ['metadata', 'base64'] },
       },
@@ -100,7 +106,7 @@ const handlers = {
   initialize: async () => ({
     protocolVersion: '2024-11-05',
     capabilities: { tools: {} },
-    serverInfo: { name: 'bear-connector', version: '0.1.1' },
+    serverInfo: { name: 'bear-connector', version: '0.2.0' },
   }),
   'tools/list': async () => ({ tools }),
   'tools/call': async (params) => {

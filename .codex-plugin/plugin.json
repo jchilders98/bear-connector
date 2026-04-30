@@ -1,6 +1,6 @@
 {
   "name": "bear-connector",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Local macOS connector for Bear notes: read, search, create, edit, append, prepend, and open notes.",
   "author": "jchilders98",
   "license": "MIT",
