@@ -92,8 +92,21 @@ test('encodes Bear URLs predictably', () => {
 
   assert.equal(
     url,
-    'bear://x-callback-url/create?title=Coffee+%26+Covid&tags=drafts%2CC%26C&clipboard=yes',
+    'bear://x-callback-url/create?title=Coffee%20%26%20Covid&tags=drafts%2CC%26C&clipboard=yes',
   )
+})
+
+test('encodes spaces and UTF-8 without form-encoding plus signs', () => {
+  const url = buildBearUrl('create', {
+    title: 'Hello World — 🏖️',
+    text: 'a b c — 🏖️',
+  })
+
+  assert.equal(
+    url,
+    'bear://x-callback-url/create?title=Hello%20World%20%E2%80%94%20%F0%9F%8F%96%EF%B8%8F&text=a%20b%20c%20%E2%80%94%20%F0%9F%8F%96%EF%B8%8F',
+  )
+  assert.equal(url.includes('+'), false)
 })
 
 async function createFixtureDatabase() {

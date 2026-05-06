@@ -26,10 +26,12 @@ Usage:
 Options:
   --database PATH       Override Bear database path.
   --container PATH      Override Bear group container path.
-  --source MODE         Read source: xcallback or sqlite.
+  --source MODE         Read source: sqlite or xcallback.
   --allow-sqlite-fallback
                         Fall back to SQLite if an x-callback read fails.
   --token TOKEN         Bear API token for x-callback search results.
+  --poll-timeout MS     Write confirmation timeout for SQLite polling.
+  --confirmation MODE   Write confirmation mode: poll or callback.
   --include-trashed     Include trashed notes in read/search/recent.
   --include-attachments Include attachment file paths and metadata on read.
   --attachments MODE    Attachment mode for read: metadata or base64.
@@ -142,10 +144,16 @@ function resolveAttachmentMode(args) {
 }
 
 function toWriteOptions(args) {
+  if (args.confirmation && !['poll', 'callback', 'none'].includes(args.confirmation)) {
+    throw new Error('--confirmation must be poll, callback, or none')
+  }
+
   return {
     dryRun: Boolean(args['dry-run']),
+    confirmation: args.confirmation,
     id: args.id,
     openNote: args['open-note'],
+    pollTimeoutMs: args['poll-timeout'],
     showWindow: args['show-window'],
     tags: args.tags,
     title: args.title,

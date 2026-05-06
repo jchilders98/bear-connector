@@ -66,6 +66,8 @@ const tools = [
         title: { type: 'string' },
         text: { type: 'string' },
         tags: { type: 'string' },
+        pollTimeoutMs: { type: 'number' },
+        confirmation: { enum: ['poll', 'callback'] },
         dryRun: { type: 'boolean' },
       },
       required: ['title', 'text'],
@@ -83,6 +85,8 @@ const tools = [
         mode: { enum: ['append', 'prepend', 'replace', 'replace_all'] },
         tags: { type: 'string' },
         newLine: { type: 'boolean' },
+        pollTimeoutMs: { type: 'number' },
+        confirmation: { enum: ['poll', 'callback'] },
         dryRun: { type: 'boolean' },
       },
       required: ['text'],
@@ -106,7 +110,7 @@ const handlers = {
   initialize: async () => ({
     protocolVersion: '2024-11-05',
     capabilities: { tools: {} },
-    serverInfo: { name: 'bear-connector', version: '0.2.0' },
+    serverInfo: { name: 'bear-connector', version: '0.2.1' },
   }),
   'tools/list': async () => ({ tools }),
   'tools/call': async (params) => {

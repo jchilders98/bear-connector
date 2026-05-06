@@ -4,9 +4,10 @@ Bear Connector is a local macOS connector for [Bear](https://bear.app/) notes. I
 
 ## What It Does
 
-- Reads and searches Bear's local SQLite database in read-only mode.
+- Reads and searches Bear's local SQLite database in read-only mode by default.
 - Creates and edits notes through Bear's official `bear://x-callback-url` actions.
-- Uses the macOS clipboard for write bodies so long notes are not squeezed into URL query strings.
+- Uses the macOS clipboard with an explicit UTF-8 locale for write bodies so long notes are not squeezed into URL query strings.
+- Confirms writes by polling Bear's database, avoiding localhost HTTP callback tabs in the user's browser.
 - Ships a CLI, a small MCP-compatible stdio server, and Codex plugin metadata.
 
 ## Requirements
@@ -112,24 +113,24 @@ If Bear's group container is in a nonstandard location, pass `--container /path/
 
 ## Privacy
 
-Reads are local. The connector shells out to `sqlite3 -readonly` against your local Bear database. Writes are performed by Bear itself through Bear's x-callback-url API.
+Reads are local. The connector shells out to `sqlite3 -readonly` against your local Bear database. Writes are performed by Bear itself through Bear's x-callback-url API, then confirmed with a short read-only SQLite poll.
 
-Write commands put the note body on your macOS clipboard. This is intentional, because it avoids URL length limits for long drafts.
+Write commands put the note body on your macOS clipboard. This is intentional, because it avoids URL length limits for long drafts. Clipboard writes set `LANG` and `LC_CTYPE` to UTF-8 so emoji, em-dashes, and other multibyte characters survive the Bear clipboard path.
 
 Attachment reads return local filesystem paths unless `--attachments base64` is used.
 
 ## Read Strategy
 
-Single-note reads prefer Bear's `open-note` x-callback-url action by default, so they do not touch Bear's SQLite database:
+Single-note reads use SQLite by default:
 
 ```bash
 bear-connector read --id NOTE_ID
 ```
 
-SQLite reads remain available when you need direct database behavior:
+Bear's `open-note` x-callback-url read path remains available when specifically requested:
 
 ```bash
-bear-connector read --id NOTE_ID --source sqlite
+bear-connector read --id NOTE_ID --source xcallback
 ```
 
 SQLite calls use `sqlite3 -readonly`, set a short busy timeout, and the process itself has a timeout so agents fail quickly instead of hanging on a locked database.
@@ -141,6 +142,10 @@ BEAR_TOKEN=... bear-connector search --query "Coffee"
 ```
 
 Without a token, search falls back to SQLite.
+
+## URL Encoding
+
+Bear expects RFC 3986 percent-encoding in x-callback-url parameters. The connector encodes spaces as `%20`, not `+`, so titles like `Hello World — 🏖️` arrive intact.
 
 ## Limitations
 

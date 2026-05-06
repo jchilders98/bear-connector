@@ -110,6 +110,7 @@ export async function readNote(options = {}) {
 export async function createNote(options = {}) {
   const title = required(options.title, 'title is required')
   const text = required(options.text, 'text is required')
+  const databasePath = resolveDatabasePath(options.database)
   const params = {
     title,
     clipboard: 'yes',
@@ -121,7 +122,11 @@ export async function createNote(options = {}) {
     params.tags = Array.isArray(options.tags) ? options.tags.join(',') : options.tags
   }
 
-  return writeThroughBear('create', params, text, options)
+  return writeThroughBear('create', params, text, {
+    ...options,
+    database: databasePath,
+    poll: () => pollForCreatedNote(databasePath, title, options),
+  })
 }
 
 export async function updateNote(options = {}) {
@@ -131,6 +136,10 @@ export async function updateNote(options = {}) {
   }
 
   const text = required(options.text, 'text is required')
+  const databasePath = resolveDatabasePath(options.database)
+  const existingNote = options.id || options.title
+    ? await getStoredNote(databasePath, { id: options.id, title: options.title }).catch(() => null)
+    : null
   const params = {
     clipboard: 'yes',
     mode,
@@ -155,7 +164,11 @@ export async function updateNote(options = {}) {
     params.new_line = 'yes'
   }
 
-  return writeThroughBear('add-text', params, text, options)
+  return writeThroughBear('add-text', params, text, {
+    ...options,
+    database: databasePath,
+    poll: () => pollForUpdatedNote(databasePath, existingNote, options),
+  })
 }
 
 export async function openNote(options = {}) {
@@ -172,7 +185,7 @@ export async function openNote(options = {}) {
     throw new Error('id or title is required')
   }
 
-  return openBearAction('open-note', params, options)
+  return openBearAction('open-note', params, { ...options, confirmation: options.confirmation || 'none' })
 }
 
 async function runJsonQuery(databasePath, sql) {
@@ -206,7 +219,10 @@ async function writeThroughBear(action, params, text, options) {
   }
 
   await writeClipboard(text)
-  const callback = await openBearAction(action, params, options)
+  const callback = await openBearAction(action, params, {
+    ...options,
+    confirmation: options.confirmation || 'poll',
+  })
   return {
     dryRun: false,
     ...callback,
@@ -221,20 +237,36 @@ async function openBearAction(action, params, options = {}) {
     return { dryRun: true, url }
   }
 
-  return callBearAction(action, params, {
-    timeoutMs: options.callbackTimeoutMs,
-  })
-}
+  if (options.confirmation === 'callback') {
+    return callBearAction(action, params, {
+      timeoutMs: options.callbackTimeoutMs,
+    })
+  }
 
-export function buildBearUrl(action, params) {
-  const url = new URL(`bear://x-callback-url/${action}`)
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== '') {
-      url.searchParams.set(key, String(value))
+  await execFileAsync('open', [url])
+
+  if (options.confirmation === 'poll' && options.poll) {
+    const confirmation = await options.poll()
+    return {
+      dryRun: false,
+      url,
+      confirmation,
     }
   }
 
-  return url.toString()
+  return {
+    dryRun: false,
+    url,
+  }
+}
+
+export function buildBearUrl(action, params) {
+  const query = Object.entries(params)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+    .join('&')
+
+  return `bear://x-callback-url/${encodeURIComponent(action)}${query ? `?${query}` : ''}`
 }
 
 async function callBearAction(action, params, options = {}) {
@@ -390,7 +422,7 @@ async function getNotePrimaryKey(databasePath, noteId) {
 }
 
 function preferCallback(options) {
-  return (options.source || process.env.BEAR_READ_SOURCE || 'xcallback') !== 'sqlite'
+  return (options.source || process.env.BEAR_READ_SOURCE || 'sqlite') === 'xcallback'
 }
 
 function resolveBearToken(token) {
@@ -409,11 +441,99 @@ function parseCallbackJson(value, fallback) {
   }
 }
 
+async function pollForCreatedNote(databasePath, title, options = {}) {
+  return pollForNote({
+    timeoutMs: options.pollTimeoutMs,
+    query: () => getStoredNote(databasePath, { title }),
+    isReady: (note) => Boolean(note?.id),
+  })
+}
+
+async function pollForUpdatedNote(databasePath, previousNote, options = {}) {
+  const noteSelector = previousNote?.id
+    ? { id: previousNote.id }
+    : { id: options.id, title: options.title }
+  const previousModifiedAt = previousNote?.modifiedAtRaw ?? -Infinity
+
+  return pollForNote({
+    timeoutMs: options.pollTimeoutMs,
+    query: () => getStoredNote(databasePath, noteSelector),
+    isReady: (note) =>
+      Boolean(note?.id) && (!previousNote || Number(note.modifiedAtRaw) > Number(previousModifiedAt)),
+  })
+}
+
+async function pollForNote(options) {
+  const timeoutMs = Number(options.timeoutMs || process.env.BEAR_POLL_TIMEOUT_MS || 10000)
+  const delays = [50, 100, 200, 400, 800]
+  const startedAt = Date.now()
+  let attempt = 0
+  let lastError
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    try {
+      const note = await options.query()
+      if (options.isReady(note)) {
+        return {
+          source: 'sqlite-poll',
+          note,
+        }
+      }
+    } catch (error) {
+      lastError = error
+    }
+
+    await sleep(delays[Math.min(attempt, delays.length - 1)])
+    attempt += 1
+  }
+
+  const suffix = lastError instanceof Error ? ` Last error: ${lastError.message}` : ''
+  throw new Error(`Timed out waiting ${timeoutMs}ms for Bear write confirmation.${suffix}`)
+}
+
+async function getStoredNote(databasePath, selector) {
+  if (!selector.id && !selector.title) {
+    return null
+  }
+
+  const where = selector.id
+    ? `ZUNIQUEIDENTIFIER = ${sqlString(selector.id)}`
+    : `ZTITLE = ${sqlString(selector.title)}`
+  const rows = await runJsonQuery(databasePath, `
+    SELECT
+      ZUNIQUEIDENTIFIER AS id,
+      ZTITLE AS title,
+      ZSUBTITLE AS subtitle,
+      ZMODIFICATIONDATE AS modifiedAtRaw,
+      ZCREATIONDATE AS createdAtRaw,
+      datetime(ZMODIFICATIONDATE + 978307200, 'unixepoch') AS modifiedAt,
+      datetime(ZCREATIONDATE + 978307200, 'unixepoch') AS createdAt,
+      length(ZTEXT) AS characterCount
+    FROM ZSFNOTE
+    WHERE ${where}
+      AND ZPERMANENTLYDELETED = 0
+    ORDER BY ZMODIFICATIONDATE DESC
+    LIMIT 1;
+  `)
+
+  return rows[0] || null
+}
+
+async function sleep(ms) {
+  await new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 async function writeClipboard(text) {
   const { spawn } = await import('node:child_process')
 
   await new Promise((resolve, reject) => {
-    const child = spawn('pbcopy')
+    const child = spawn('pbcopy', [], {
+      env: {
+        ...process.env,
+        LANG: process.env.LANG || 'en_US.UTF-8',
+        LC_CTYPE: process.env.LC_CTYPE || 'en_US.UTF-8',
+      },
+    })
 
     child.on('error', reject)
     child.on('close', (code) => {
@@ -425,7 +545,7 @@ async function writeClipboard(text) {
       reject(new Error(`pbcopy exited with status ${code}`))
     })
 
-    child.stdin.end(text)
+    child.stdin.end(Buffer.from(text, 'utf8'))
   })
 }
 
